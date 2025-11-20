@@ -1,0 +1,126 @@
+Practica 1 
+
+# Instalamos el paquete del servidor NFS
+sudo dnf install nfs-utils -y
+
+# Habilitamos y arrancamos el servicio nfs-server
+sudo systemctl enable --now nfs-server
+
+# Creamos el directorio que se compartirá
+sudo mkdir -p /srv/OST3
+cd /srv/OST3
+
+#Creamos los 100 archivos
+sudo touch Adriann{1..100}.txt
+
+# Damos permisos amplios para que otros usuarios puedan leer y escribir
+sudo chown -R nobody:nobody /srv/OST3
+sudo chmod -R 755 /srv/OST3
+
+# Configuramos el archivo exports para definir qué se compartirá
+sudo nano /etc/exports
+=> /srv/OST3 192.168.79.130/24(rw,sync,no_root_squash)
+
+# Aplicamos cambios del archivo /etc/exports
+sudo exportfs -rav
+
+#Permitimos el nfs atreves del firewall
+sudo firewall-cmd --permanent --add-service=nfs
+sudo firewall-cmd --reload
+
+*Pasamos a la maquina cliente*
+
+# Instalamos herramientas cliente NFS
+sudo dnf install nfs-utils -y
+
+# Carpeta local donde se montará el recurso NFS del servidor
+sudo mkdir -p /mnt/ost3
+
+#Montamos manualmente el recurso NFS
+sudo mount -t nfs 192.168.79.130:/srv/OST3 /mnt/ost3
+df -h
+
+#Vamos a hacer que el montaje sea permanente, editando fstab
+# Abrimos el archivo fstab para configurar el montaje automático
+sudo nano /etc/fstab
+=> 192.168.79.130:/srv/OST3 /mnt/ost3 nfs defaults 0 0
+
+#Ahora reiniciamos el sistema para ver si se guardo correctamente
+sudo reboot
+
+#ahora usamos:
+df -h
+
+ls /mnt/os3
+
+
+Practica 2
+
+# Instalar Samba y herramientas
+sudo dnf install samba samba-common samba-client -y
+
+# Habilitar y arrancar el servicio
+sudo systemctl enable smb --now
+sudo systemctl enable nmb --now
+
+# Verificar que los servicios estén activos
+systemctl status smb
+systemctl status nmb
+
+# Crear carpeta compartida
+sudo mkdir -p /srv/samba/compartida
+
+# Crear grupo de SAMBA
+sudo groupadd grupo_samba
+
+# Crear usuarios 
+sudo useradd -m -G grupo_samba Martinez
+
+# Asignar contraseña a los usuarios (para Linux)
+sudo passwd Martinez
+
+# Agregar usuarios a SAMBA (contraseña para Windows)
+sudo smbpasswd -a Martinez
+
+# Habilitar usuarios en samba
+sudo smbpasswd -e Martinez
+
+# Dar permisos de carpeta
+sudo chown -R :grupo_samba /srv/samba/compartida
+sudo chmod -R 2770 /srv/samba/compartida
+
+# Hacer copia del archivo original
+sudo cp /etc/samba/smb.conf /etc/samba/smb.conf.bak
+
+#editamos
+sudo nano /etc/samba/smb.conf
+
+[compartida]
+   path = /srv/samba/compartida
+   browseable = yes
+   writable = yes
+   read only = no
+   valid users = @grupo_samba
+   create mask = 0660
+   directory mask = 0770
+
+# Reiniciar Samba para aplicar cambios
+sudo systemctl restart smb nmb
+
+# Crear 100 archivos llamados adrian
+sudo touch /srv/samba/compartida/Adriann{1..100}.txt
+
+# Permitir servicio SAMBA en firewall
+sudo firewall-cmd --add-service=samba --permanent
+
+# Recargar reglas
+sudo firewall-cmd --reload
+
+
+
+
+
+
+
+
+
