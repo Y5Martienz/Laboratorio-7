@@ -1,120 +1,270 @@
-Practica 1 
+Practica 1
 
-# Instalamos el paquete del servidor NFS
+#En el servidor RHEL, instalamos la herramienta NFS:
+
 sudo dnf install nfs-utils -y
 
-# Habilitamos y arrancamos el servicio nfs-server
-sudo systemctl enable --now nfs-server
+#Luego iniciamos, habilitamos y verificamos el estado del servicio:
 
-# Creamos el directorio que se compartirá
-sudo mkdir -p /srv/OST3
-cd /srv/OST3
+sudo systemctl start nfs-server
+sudo systemctl enable nfs-server
+sudo systemctl status nfs-server
 
-#Creamos los 100 archivos
-sudo touch Adriann{1..100}.txt
+#Creamos el directorio en el que ubicaremos los archivos a compartir, y creamos los archivos:
 
-# Damos permisos amplios para que otros usuarios puedan leer y escribir
-sudo chown -R nobody:nobody /srv/OST3
-sudo chmod -R 755 /srv/OST3
+sudo mkdir -p /var/nfs/os3
+cd /var/nfs/os3
+sudo touch Adrian{1..100}.txt
 
-# Configuramos el archivo exports para definir qué se compartirá
+#Asignamos los permisos apropiados para que el directorio sea accesible por otros usuarios:
+
+sudo chown nobody:nobody /var/nfs/os3
+sudo chmod 755 /var/nfs/os3
+
+#Configurarmos el archivo /etc/exports para compartir la carpeta. Agregamos la línea después del ">", ajustando la ip a nuestra dirección de red:
+
 sudo nano /etc/exports
-=> /srv/OST3 192.168.79.130/24(rw,sync,no_root_squash)
+> /var/nfs/os3 192.168.10.17/24(rw,sync,no_subtree_check)
 
-# Aplicamos cambios del archivo /etc/exports
+#Guardamos, salimos, y exportamos los recursos compartidos:
+
 sudo exportfs -rav
 
-#Permitimos el nfs atreves del firewall
+#En caso de tener el firewalld activo, nos aseguramos de permitir el acceso:
+
 sudo firewall-cmd --permanent --add-service=nfs
 sudo firewall-cmd --reload
 
-*Pasamos a la maquina cliente*
+#Desde el cliente (un clon de RHEL) descargamos la herramienta cliente NFS:
 
-# Instalamos herramientas cliente NFS
+sudo dnf update
 sudo dnf install nfs-utils -y
 
-# Carpeta local donde se montará el recurso NFS del servidor
-sudo mkdir -p /mnt/ost3
+#Creamos un punto de montaje:
 
-#Montamos manualmente el recurso NFS
-sudo mount -t nfs 192.168.79.130:/srv/OST3 /mnt/ost3
+sudo mkdir -p /mnt/os3
+
+#Montamos manualmente el recurso NFS (colocamos la ip de nuestro servidor) y verificamos:
+
+sudo mount -t nfs 192.168.10.16:/var/nfs/os3 /mnt/os3
 df -h
 
-#Vamos a hacer que el montaje sea permanente, editando fstab
-# Abrimos el archivo fstab para configurar el montaje automático
+#Luego, para hacer que el montaje sea permanente, editamos el archivo /etc/fstab y agregamos la línea posterior al signo ">":
+
 sudo nano /etc/fstab
-=> 192.168.79.130:/srv/OST3 /mnt/ost3 nfs defaults 0 0
+> 192.168.10.16:/var/nfs/os3 /mnt/os3 nfs defaults 0 0
 
-#Ahora reiniciamos el sistema para ver si se guardo correctamente
+#Guardamos y salimos. Listamos los archivos:
+
+ls /mnt/os3
+
+#Reiniciamos la máquina y, tras el reinicio, verificamos los archivos montados y volvemos a listar los archivos:
+
 sudo reboot
-
-#ahora usamos:
 df -h
-
 ls /mnt/os3
 
 
 Practica 2
 
-# Instalar Samba y herramientas
-sudo dnf install samba samba-common samba-client -y
+#En nuestro servidor RHEL, instalamos SAMBA y herramientas necesarias:
 
-# Habilitar y arrancar el servicio
-sudo systemctl enable smb --now
-sudo systemctl enable nmb --now
+sudo dnf install samba samba-client samba-common -y
 
-# Verificar que los servicios estén activos
-systemctl status smb
-systemctl status nmb
+#Habilitamos e iniciamos los servicios SMB y NMB:
 
-# Crear carpeta compartida
-sudo mkdir -p /srv/samba/compartida
+sudo systemctl enable --now smb nmb
 
-# Crear grupo de SAMBA
-sudo groupadd grupo_samba
+#Creamos la carpeta compartida y asignamos permisos para que todos puedan acceder a los archivos. Luego, creamos los archivos a compartir:
 
-# Crear usuarios 
-sudo useradd -m -G grupo_samba Martinez
+sudo mkdir -p /srv/samba/public
+sudo chcon -t samba_share_t /srv/samba/public
+cd /srv/samba/public
+sudo touch Adrian{1..100}.txt
+sudo chmod -R 777 /srv/samba/public
+sudo chown -R nobody:nobody /srv/samba/public
+ls
+ll
 
-# Asignar contraseña a los usuarios (para Linux)
-sudo passwd Martinez
+#Configuramos el Firewall para SAMBA:
 
-# Agregar usuarios a SAMBA (contraseña para Windows)
-sudo smbpasswd -a Martinez
+sudo systemctl enable --now smb nmb
 
-# Habilitar usuarios en samba
-sudo smbpasswd -e Martinez
+sudo firewall-cmd --add-service=samba --permanent
+sudo firewall-cmd --reload
 
-# Dar permisos de carpeta
-sudo chown -R :grupo_samba /srv/samba/compartida
-sudo chmod -R 2770 /srv/samba/compartida
+#Editamos el archivo de configuración de SAMBA, agregamos el contenido posterior al signo ">", adaptándolo a nuestro archivo compartido:
 
-# Hacer copia del archivo original
-sudo cp /etc/samba/smb.conf /etc/samba/smb.conf.bak
-
-#editamos
 sudo nano /etc/samba/smb.conf
-
-[compartida]
-   path = /srv/samba/compartida
-   browseable = yes
+> despues de [include] borras todo y colocas lo siguiente:
+[public]
+   path = /srv/samba/public
+   browsable = yes
    writable = yes
+   guest ok = yes
    read only = no
-   valid users = @grupo_samba
-   create mask = 0660
-   directory mask = 0770
+   force user = nobody
 
-# Reiniciar Samba para aplicar cambios
+#Luego, creamos los grupos y usuarios para SAMBA, asignando la contraseña:
+
+sudo groupadd sambausers
+sudo useradd -M -s /sbin/nologin Marcos
+sudo smbpasswd -a Marcos
+sudo usermod -aG sambausers Marcos
+
+#Reiniciamos los servicios de SAMBA:
+
 sudo systemctl restart smb nmb
 
-# Crear 100 archivos llamados adrian
-sudo touch /srv/samba/compartida/Adriann{1..100}.txt
+#Luego, vamos al cliente Windows. Para conectar la carpeta compartida como unidad de red, nos dirigimos...
 
-# Permitir servicio SAMBA en firewall
-sudo firewall-cmd --add-service=samba --permanent
+Explorador de archivos> Este equipo> Conectar a unidad de red...
 
-# Recargar reglas
+#Escribimos:
+
+\\<192.168.10.16>\public
+
+#Marcamos la casilla "Conectar con otras credenciales" y clicamos en finalizar (Colocaremos las credenciales creadas en el servidor).
+
+#Luego, ingresamos al archivo Adrian99.txt y editamos el texto. Lo guardamos, y nos dirigimos al servidor Rocky para comprobar el cambio:
+
+cd /srv/samba/public
+cat Adrian99.txt
+
+Practica 3
+
+Practica 3
+
+
+1. Preparación del sistema
+
+hostnamectl set-hostname dc1.inet (NO PUEDES TENER EL MISMO HOSTNAME QUE EL DOMINIO O DARÁ ERROR)
+echo "192.168.10.17 dc1.inet" >> /etc/hosts   # poner la IP de su server
+
+#Verificar si se cambió el hostname#
+hostname
+hostname -f
+
+#Poner al día el sistema e instalar paquetes necesarios#
+dnf -y update
+dnf -y install epel-release
+sudo dnf config-manager --set-enabled powertools
+dnf update
+sudo dnf makecache
+dnf -y install wget tar gcc make python3-devel
+
+2. Descarga e instalación de Samba
+----------------------------------
+mkdir -p /samba && cd /samba
+wget https://download.samba.org/pub/samba/stable/samba-4.16.2.tar.gz
+tar -zxvf samba-4.16.2.tar.gz && cd samba-4.16.2/
+
+sudo dnf -y install \
+  docbook-style-xsl python3-markdown bison dbus-devel flex gdb \
+  gnutls-devel jansson-devel keyutils-libs-devel krb5-workstation \
+  libacl-devel libaio-devel libarchive-devel libattr-devel libblkid-devel \
+  libtasn1 libtasn1-tools libxml2-devel libxslt lmdb-devel openldap-devel \
+  pam-devel perl perl-ExtUtils-MakeMaker perl-Parse-Yapp popt-devel \
+  python3-cryptography python3-dns python3-gpg readline-devel rpcgen \
+  systemd-devel zlib-devel perl-JSON gpgme-devel screen
+
+./configure --prefix=/usr/local/samba --enable-fhs --with-ads --with-systemd
+make -j$(nproc)
+make install
+
+Poner este comando primero
+export PATH=/usr/local/samba/bin:/usr/local/samba/sbin:$PATH
+
+NOTA: Si te aparece contenido en el primer nano (~/.bash_profile) solo reemplaza el path que tenga ese archivo con el nuevo y listo, el otro archivo (../.bash_profile) no existe.
+nano ~/.bash_profile 
+        PATH=$PATH:$HOME/bin:/usr/local/samba/bin:/usr/local/samba/sbin:$PATH
+        export PATH  
+
+
+nano ../.bash_profile
+        PATH=$PATH:$HOME/bin:/usr/local/samba/bin:/usr/local/samba/sbin:$PATH
+        export PATH
+
+NOTA: Asegurate que en --option="interfaces= lo ens160" tenga el verdadero nombre de tu interfaz de red, o sea que en vez de ens160 tenga el nombre de la interfaz que usas (si no sabes, pon ip a en la terminal y el nombre que vas a usar será la interfaz que tenga la ip de tu maquina).
+samba-tool domain provision --use-rfc2307 --interactive --option="interfaces= lo ens160" --option="bind interfaces only=yes"
+
+#Dominio: OS3.inet  
+#Nombre de dominio: OS3 
+#Nombre de controlador: dc  
+#Backend DNS: SAMBA_INTERNAL  
+#Contraseña: [CONTRASEÑA] Te va a pedir una contraseña de minimo 7 caracteres y que cumpla con los requerimentos de complejidad 
+
+# inicia el servicio de samba con el siguiente comando
+samba
+NOTA: Si de casualidad se reinicia el sistema, no va a iniciar samba con ese comando, así que tendrás que usar "sudo /usr/local/samba/sbin/samba" para ejecutarlo, que es su ruta absoluta.
+
+#Pruebas de DNS
+ping google.com
+ping OS3.inet
+ping dc1.inet (si no funciona el OS3.inet en Linux, prueba tu hostname, pero debe funcionar como OS3.inet en Windows) 
+
+#Copiar el Archivo de Kerberos
+cp /usr/local/samba/var/lib/samba/private/krb5.conf /etc/krb5.conf
+
+#Agregar reglas al firewall
+firewall-cmd --permanent --add-service={ldap,ldaps,kerberos,dns}
+firewall-cmd --permanent --add-port={53,88,135,139,389,445,464,636,3268,3269}/tcp
+firewall-cmd --permanent --add-port={53,88,123,138,389,464}/udp
+firewall-cmd --reload
+
+# Configura el DNS para que sea solo la IP del propio servidor
+sudo nmcli con mod ens160 ipv4.dns 192.168.10.17
+
+# Le dice que ignore cualquier DNS automático (como el de DHCP)
+sudo nmcli con mod ens160 ipv4.ignore-auto-dns yes
+
+# Aplica los cambios
+sudo nmcli con up ens160
+
+NOTA: Necesitas cambiarle el DNS a tu maquina SERVER para que las CLIENTE que estén en el dominio puedan acceder a internet 
+
+
+# Agregar Registro DN maquina cliente
+###################IP DEl SERVER ################ IP VM WINDOWS ################                
+samba-tool dns add 192.168.10.17 OS3.inet www A 192.168.0.11 -U Administrator
+
+#### en la VM de windows###:
+
+## En la configuracion de al tarjeta de Red cambiar el DNS de la maquina a que apunte al servidor de Linux ##
+Presione Win + R y escriba ncpa.cpl, luego le da click derecho al adaptador de red, propiedades y seleccione "Protocolo de Internet versión 4 (TCP/IPv4)" y propiedades.
+Dejas la IP como esté y cambias el DNS a manual, y en servidor dns preferido pones la ip de tu SERVER y en servidor alternativo lo dejas vacío o va a fallar.
+Luego abres CMD y escribes: ipconfig /flushdns
+
+#haga ping al dominio (OS3.inet) el ping debe de responder con al Ip del servidor
+ping OS3.inet
+ping www.OS3.inet
+
+Presiona Win + R, escribe sysdm.cpl y presiona Enter.
+Ir a "Nombre del equipo" > "Cambiar":
+
+Selecciona Miembro de un dominio e ingresa: os3.inet
+Le va a pedir un reinicio en la maquina de windows, y luego de eso, le das a other users y pones:
+
+Usuario: OS3\Administrator (NOTA: Si pones solo Administrator, windows lo va a tomar como un usuario local y te va a decir contraseña incorrecta aunque esté bien)
+Contraseña: [Contraseña puesta]
+
+#Agregar usuario lanegracubana
+
+sudo /usr/local/samba/bin/samba-tool user create lanegracubana "Marcos20250855" --given-name="La Negra" --surname="Cubana" --mail=lanegracubana@so3.inet
+
+Si sigue sin funcionar el inicio de sesión pero todo está correcto, revisa el firewall y el estado de SELinux:
+
+# Rango estándar de puertos dinámicos para RPC
+sudo firewall-cmd --permanent --add-port=49152-65535/tcp
+
+# Recarga el firewall para aplicar los cambios
 sudo firewall-cmd --reload
+
+# Pone SELinux en modo permisivo temporalmente
+sudo setenforce 0
+
+# Para verificar el estado (debería decir "Permissive")
+sestatus
 
 
 
